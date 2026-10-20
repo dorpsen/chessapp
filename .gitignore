@@ -1,0 +1,5 @@
+.streamlit/
+.streamlit/secrets.toml
+service-account.json
+__pycache__/
+*.pyc

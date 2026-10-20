@@ -1,74 +1,88 @@
-import chess
-import chess.svg
 import streamlit as st
+from google.cloud import firestore
+import os
 
-st.set_page_config(page_title="Python Chess Opening Trainer", page_icon="♟️")
-st.title("♟️ Opening Trainer")
+# Pagina configuratie
+st.set_page_config(
+    page_title="ClubChessApp",
+    page_icon="♟️",
+    layout="wide"
+)
 
-# 1. Voorbeeld van openingsrepertoire (dit kun je uitbreiden of uit PGN's laden)
-OPENINGS = {
-    "Siciliaans (1. e4 c5)": ["e4", "c5"],
-    "Frans (1. e4 e6)": ["e4", "e6"],
-    "Spaans (1. e4 e5 2. Nf3 Nc6 3. Bb5)": ["e4", "e5", "Nf3", "Nc6", "Bb5"],
-}
+# 1. Initialiseer de inlogstatus in Session State
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
 
-# 2. Selectie van de opening
-selected_opening = st.selectbox("Kies een opening om te trainen:", list(OPENINGS.keys()))
-target_moves = OPENINGS[selected_opening]
+# 2. Functie om verbinding te maken met Firestore
+@st.cache_resource
+def init_firestore():
+    json_path = "service-account.json"
+    if not os.path.exists(json_path):
+        return None
+    try:
+        db = firestore.Client.from_service_account_json(json_path)
+        return db
+    except Exception as e:
+        st.error(f"Fout bij verbinden met Firestore: {e}")
+        return None
 
-# 3. Initialiseer de staat van het bord en de voortgang
-if "board" not in st.session_state or st.session_state.get("current_opening") != selected_opening:
-    st.session_state.board = chess.Board()
-    st.session_state.move_index = 0
-    st.session_state.current_opening = selected_opening
-    st.session_state.feedback = ""
+db = init_firestore()
 
-board = st.session_state.board
-
-# 4. Toon het schaakbord via de ingebouwde SVG van python-chess
-board_svg = chess.svg.board(board=board, size=400)
-st.image(board_svg, use_container_width=False)
-
-# 5. Trainingslogica
-if st.session_state.move_index < len(target_moves):
-    expected_move = target_moves[st.session_state.move_index]
+def show_login_page():
+    st.title("♟️ ClubChessApp - Beveiligde Ingang")
+    st.write("Log in om toegang te krijgen tot het platform.")
     
-    st.write(f"**Stap {st.session_state.move_index + 1} van {len(target_moves)}**")
-    
-    # Als de computer aan de beurt is in het scenario, doe de zet automatisch
-    if board.turn == chess.BLACK and expected_move:
-        board.push_san(expected_move)
-        st.session_state.move_index += 1
-        st.rerun()
-
-    # Veld voor de speler om zijn zet in te voeren
-    user_move = st.text_input("Jouw zet (bijv. e4, Nf3, c5):", key=f"input_{st.session_state.move_index}")
-
-    if st.button("Verstuur Zet"):
-        try:
-            parsed_move = board.parse_san(user_move)
-            
-            # Controleer of de zet klopt met het gekozen repertoire
-            if user_move == expected_move:
-                board.push(parsed_move)
-                st.session_state.move_index += 1
-                st.session_state.feedback = "✅ Goed zo! Dat is de juiste openingzet."
+    with st.form("login_form"):
+        username = st.text_input("Gebruikersnaam")
+        password = st.text_input("Wachtwoord", type="password")
+        submit_button = st.form_submit_button("Inloggen")
+        
+        if submit_button:
+            # Tijdelijke inloggegevens (kun je later koppelen aan Firestore)
+            if username == "pieter" and password == "schaak123":
+                st.session_state.logged_in = True
+                st.success("Succesvol ingelogd!")
                 st.rerun()
             else:
-                st.error(f"❌ Fout! Dat is niet de verwachte zet in deze opening. Probeer opnieuw.")
-        except Exception:
-            st.error("Ongeldige schaaknotatie. Typ bijvoorbeeld 'e4' of 'Nf6'.")
+                st.error("Onjuiste gebruikersnaam of wachtwoord.")
 
+def show_main_app():
+    # Sidebar voor navigatie en uitloggen
+    st.sidebar.title("Navigatie")
+    st.sidebar.write("Welkom, beheerder!")
+    
+    if st.sidebar.button("Uitloggen (Afmelden)"):
+        st.session_state.logged_in = False
+        st.rerun()
+
+    st.title("♟️ ClubChessApp - Dashboard")
+    st.write("Welkom in de beveiligde omgeving van de schaaktraining.")
+    
+    # Database verbindingstest widget
+    if db:
+        st.success("Verbinding met Google Cloud Firestore is actief!")
+        
+        if st.button("Testbericht opslaan in Firestore"):
+            doc_ref = db.collection("test_collectie").document("welkom")
+            doc_ref.set({
+                "bericht": "Hallo vanuit Streamlit en Firebase!",
+                "status": "Succesvol gekoppeld"
+            })
+            st.info("Testbericht opgeslagen in de database!")
+
+        if st.button("Laat testbericht zien"):
+            doc_ref = db.collection("test_collectie").document("welkom")
+            doc = doc_ref.get()
+            if doc.exists:
+                data = doc.to_dict()
+                st.write("Ontvangen uit Firestore:", data)
+            else:
+                st.warning("Nog geen testbericht gevonden. Klik eerst op opslaan!")
+    else:
+                st.error("Kan geen verbinding maken met de database. Controleer of 'service-account.json' aanwezig is.")
+
+# 3. Logica om te bepalen of het inlogscherm of de app getoond wordt
+if not st.session_state.logged_in:
+    show_login_page()
 else:
-    st.success("🎉 Gefeliciteerd! Je hebt de variant succesvol afgerond.")
-
-# Feedback-melding weergeven
-if st.session_state.feedback:
-    st.info(st.session_state.feedback)
-
-# Reset knop
-if st.button("Opnieuw beginnen"):
-    st.session_state.board = chess.Board()
-    st.session_state.move_index = 0
-    st.session_state.feedback = ""
-    st.rerun()
+    show_main_app()
